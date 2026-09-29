@@ -1,0 +1,1202 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+
+from kwave.kgrid import kWaveGrid
+from kwave.kmedium import kWaveMedium
+from kwave.ksource import kSource
+from kwave.ksensor import kSensor
+from kwave.kspaceFirstOrder import kspaceFirstOrder
+
+
+# ============================================================
+# STAGE 1
+# REFLECTION + TRANSMISSION + BOTTOM REFLECTION
+# ============================================================
+
+print()
+print("=" * 75)
+print("STAGE 1 - REFLECTION + REFRACTION / TRANSMISSION")
+print("=" * 75)
+
+
+# ============================================================
+# 1. PHYSICAL PARAMETERS
+# ============================================================
+
+AIR_DISTANCE = 0.30
+LIQUID_DEPTH = 0.70
+
+AIR_SPEED = 343.0
+LIQUID_SPEED = 1480.0
+
+AIR_DENSITY = 1.2
+LIQUID_DENSITY = 1000.0
+
+# First successful test frequency
+FREQUENCY = 20000.0
+
+
+# ============================================================
+# 2. GRID
+# ============================================================
+#
+# 2 mm grid gives better spatial resolution at 20 kHz.
+#
+# Air wavelength:
+#
+# lambda = 343 / 20000
+#        = 0.01715 m
+#        = 17.15 mm
+#
+# 2 mm grid gives about 8.6 points/wavelength.
+# ============================================================
+
+dx = 0.002
+dy = 0.002
+
+Nx = 520
+Ny = 40
+
+kgrid = kWaveGrid(
+    [Nx, Ny],
+    [dx, dy]
+)
+
+
+# ============================================================
+# 3. GEOMETRY
+# ============================================================
+
+SOURCE_X = 20
+
+AIR_CELLS = int(
+    AIR_DISTANCE / dx
+)
+
+LIQUID_CELLS = int(
+    LIQUID_DEPTH / dx
+)
+
+SURFACE_X = SOURCE_X + AIR_CELLS
+
+BOTTOM_X = SURFACE_X + LIQUID_CELLS
+
+
+print()
+print("GEOMETRY")
+print("-" * 75)
+
+print(
+    f"Source / sensor position : {SOURCE_X}"
+)
+
+print(
+    f"Liquid surface position  : {SURFACE_X}"
+)
+
+print(
+    f"Liquid bottom position   : {BOTTOM_X}"
+)
+
+print(
+    f"Air distance             : "
+    f"{AIR_DISTANCE:.3f} m"
+)
+
+print(
+    f"Liquid depth             : "
+    f"{LIQUID_DEPTH:.3f} m"
+)
+
+print("-" * 75)
+
+
+# ============================================================
+# 4. SOURCE EMISSION TIME
+# ============================================================
+
+SOURCE_TIME = 0.00030
+
+
+# ============================================================
+# 5. EXPECTED TIMES
+# ============================================================
+
+surface_round_trip = (
+    2.0 *
+    AIR_DISTANCE /
+    AIR_SPEED
+)
+
+liquid_round_trip = (
+    2.0 *
+    LIQUID_DEPTH /
+    LIQUID_SPEED
+)
+
+surface_expected = (
+    SOURCE_TIME +
+    surface_round_trip
+)
+
+bottom_expected = (
+    surface_expected +
+    liquid_round_trip
+)
+
+
+print()
+print("EXPECTED TIMES")
+print("-" * 75)
+
+print(
+    f"Source emission     : "
+    f"{SOURCE_TIME * 1000:.3f} ms"
+)
+
+print(
+    f"Air round trip      : "
+    f"{surface_round_trip * 1000:.3f} ms"
+)
+
+print(
+    f"Liquid round trip   : "
+    f"{liquid_round_trip * 1000:.3f} ms"
+)
+
+print()
+
+print(
+    f"Surface echo        : "
+    f"{surface_expected * 1000:.3f} ms"
+)
+
+print(
+    f"Bottom echo         : "
+    f"{bottom_expected * 1000:.3f} ms"
+)
+
+print("-" * 75)
+
+
+# ============================================================
+# 6. TIME SETTINGS
+# ============================================================
+
+CFL = 0.20
+
+MAX_SPEED = 4000.0
+
+dt = (
+    CFL *
+    min(dx, dy) /
+    MAX_SPEED
+)
+
+SIMULATION_TIME = 0.004
+
+
+Nt = (
+    int(
+        np.ceil(
+            SIMULATION_TIME / dt
+        )
+    )
+    + 1
+)
+
+
+kgrid.setTime(
+    Nt,
+    dt
+)
+
+
+time = np.asarray(
+    kgrid.t_array
+).flatten()
+
+
+print()
+print("TIME SETTINGS")
+print("-" * 75)
+
+print(
+    f"CFL                 : {CFL}"
+)
+
+print(
+    f"Time step           : "
+    f"{dt:.3e} s"
+)
+
+print(
+    f"Simulation time     : "
+    f"{time[-1] * 1000:.3f} ms"
+)
+
+print(
+    f"Number of steps     : "
+    f"{len(time)}"
+)
+
+print("-" * 75)
+
+
+# ============================================================
+# 7. MATERIAL MAP
+# ============================================================
+
+# Start with AIR everywhere.
+
+sound_speed = (
+    np.ones(
+        (Nx, Ny)
+    )
+    *
+    AIR_SPEED
+)
+
+density = (
+    np.ones(
+        (Nx, Ny)
+    )
+    *
+    AIR_DENSITY
+)
+
+
+# ------------------------------------------------------------
+# LIQUID
+# ------------------------------------------------------------
+
+sound_speed[
+    SURFACE_X:BOTTOM_X,
+    :
+] = LIQUID_SPEED
+
+density[
+    SURFACE_X:BOTTOM_X,
+    :
+] = LIQUID_DENSITY
+
+
+# ------------------------------------------------------------
+# BOTTOM MATERIAL
+# ------------------------------------------------------------
+#
+# High impedance bottom creates a strong reflection.
+# ------------------------------------------------------------
+
+BOTTOM_SPEED = 4000.0
+BOTTOM_DENSITY = 2500.0
+
+
+sound_speed[
+    BOTTOM_X:,
+    :
+] = BOTTOM_SPEED
+
+density[
+    BOTTOM_X:,
+    :
+] = BOTTOM_DENSITY
+
+
+medium = kWaveMedium(
+    sound_speed=sound_speed,
+    density=density
+)
+
+
+# ============================================================
+# 8. SOURCE
+# ============================================================
+#
+# A LINE SOURCE is used instead of a single grid point.
+# This makes the wave approximately planar and gives more
+# energy to the liquid interface.
+# ============================================================
+
+source = kSource()
+
+source.p_mask = np.zeros(
+    (Nx, Ny),
+    dtype=bool
+)
+
+
+SOURCE_Y1 = 5
+SOURCE_Y2 = Ny - 5
+
+
+source.p_mask[
+    SOURCE_X,
+    SOURCE_Y1:SOURCE_Y2
+] = True
+
+
+# ============================================================
+# 9. SOURCE PULSE
+# ============================================================
+
+pulse_width = 0.000025
+
+
+envelope = np.exp(
+    -(
+        (
+            time -
+            SOURCE_TIME
+        )
+        /
+        pulse_width
+    ) ** 2
+)
+
+
+carrier = np.sin(
+    2.0 *
+    np.pi *
+    FREQUENCY *
+    (
+        time -
+        SOURCE_TIME
+    )
+)
+
+
+source_signal = (
+    envelope *
+    carrier
+)
+
+
+source_signal = (
+    source_signal /
+    np.max(
+        np.abs(source_signal)
+    )
+)
+
+
+# Give the same signal to every source point.
+
+number_of_source_points = (
+    SOURCE_Y2 -
+    SOURCE_Y1
+)
+
+
+source.p = np.tile(
+    source_signal,
+    (
+        number_of_source_points,
+        1
+    )
+)
+
+
+# ============================================================
+# 10. SENSOR
+# ============================================================
+#
+# Sensor is at the SAME physical position as the source.
+#
+# Therefore it receives:
+#
+# 1. Surface reflection
+# 2. Bottom reflection
+#
+# ============================================================
+
+sensor_mask = np.zeros(
+    (Nx, Ny),
+    dtype=bool
+)
+
+
+sensor_mask[
+    SOURCE_X,
+    SOURCE_Y1:SOURCE_Y2
+] = True
+
+
+sensor = kSensor(
+    mask=sensor_mask,
+    record=["p"]
+)
+
+
+# ============================================================
+# 11. RUN K-WAVE
+# ============================================================
+
+print()
+print("=" * 75)
+print("RUNNING K-WAVE")
+print("=" * 75)
+
+print()
+
+
+result = kspaceFirstOrder(
+    kgrid,
+    medium,
+    source,
+    sensor,
+    pml_size=10,
+    pml_inside=False,
+    backend="python",
+    device="cpu"
+)
+
+
+print()
+print("=" * 75)
+print("K-WAVE COMPLETED")
+print("=" * 75)
+
+
+# ============================================================
+# 12. GET SENSOR DATA
+# ============================================================
+
+pressure = np.asarray(
+    result["p"]
+)
+
+
+print()
+print(
+    "Raw pressure shape:",
+    pressure.shape
+)
+
+
+# If sensor has many points, average them.
+
+if pressure.ndim == 2:
+
+    received = np.mean(
+        pressure,
+        axis=0
+    )
+
+else:
+
+    received = pressure.flatten()
+
+
+N = min(
+    len(time),
+    len(received)
+)
+
+time = time[:N]
+
+received = received[:N]
+
+
+print(
+    "Processed signal length:",
+    len(received)
+)
+
+
+# ============================================================
+# 13. REMOVE DC
+# ============================================================
+
+received = (
+    received -
+    np.mean(received)
+)
+
+
+# ============================================================
+# 14. NORMALIZE
+# ============================================================
+
+max_pressure = np.max(
+    np.abs(received)
+)
+
+
+if max_pressure == 0:
+
+    raise RuntimeError(
+        "Sensor received no pressure signal."
+    )
+
+
+signal = (
+    received /
+    max_pressure
+)
+
+
+# ============================================================
+# 15. ENVELOPE
+# ============================================================
+
+absolute_signal = np.abs(
+    signal
+)
+
+
+smooth_window = 51
+
+
+kernel = (
+    np.ones(
+        smooth_window
+    )
+    /
+    smooth_window
+)
+
+
+envelope = np.convolve(
+    absolute_signal,
+    kernel,
+    mode="same"
+)
+
+
+# ============================================================
+# 16. PEAK DETECTION
+# ============================================================
+#
+# Very low threshold is used because the bottom echo is much
+# weaker than the surface reflection due to the large
+# air/liquid impedance difference.
+# ============================================================
+
+threshold = (
+    0.0005 *
+    np.max(envelope)
+)
+
+
+minimum_peak_distance = max(
+    1,
+    int(
+        0.00008 /
+        dt
+    )
+)
+
+
+peaks, peak_properties = find_peaks(
+    envelope,
+    height=threshold,
+    distance=minimum_peak_distance
+)
+
+
+# ============================================================
+# 17. PRINT ALL PEAKS
+# ============================================================
+
+print()
+print("=" * 75)
+print("DETECTED SIGNAL PEAKS")
+print("=" * 75)
+
+
+if len(peaks) == 0:
+
+    print(
+        "No peaks detected."
+    )
+
+else:
+
+    for peak in peaks:
+
+        print(
+            f"Time = "
+            f"{time[peak] * 1000:.4f} ms"
+            f"   Envelope = "
+            f"{envelope[peak]:.6f}"
+        )
+
+
+# ============================================================
+# 18. SURFACE ECHO
+# ============================================================
+#
+# Expected:
+#
+# 0.300 ms source emission
+# +
+# 1.749 ms air round trip
+# =
+# 2.049 ms
+# ============================================================
+
+SURFACE_WINDOW = 0.00025
+
+
+surface_candidates = peaks[
+    (
+        time[peaks]
+        >=
+        surface_expected -
+        SURFACE_WINDOW
+    )
+    &
+    (
+        time[peaks]
+        <=
+        surface_expected +
+        SURFACE_WINDOW
+    )
+]
+
+
+if len(surface_candidates) > 0:
+
+    # Choose strongest peak in the physical window.
+
+    surface_peak = (
+        surface_candidates[
+            np.argmax(
+                envelope[
+                    surface_candidates
+                ]
+            )
+        ]
+    )
+
+    surface_detected = True
+
+    surface_time = (
+        time[surface_peak]
+    )
+
+else:
+
+    surface_detected = False
+
+
+# ============================================================
+# 19. BOTTOM ECHO
+# ============================================================
+#
+# Expected:
+#
+# surface echo
+# +
+# liquid round trip
+#
+# = approximately 2.995 ms
+#
+# Search ONLY around the physical bottom arrival.
+# ============================================================
+
+BOTTOM_WINDOW = 0.00020
+
+
+bottom_candidates = peaks[
+    (
+        time[peaks]
+        >=
+        bottom_expected -
+        BOTTOM_WINDOW
+    )
+    &
+    (
+        time[peaks]
+        <=
+        bottom_expected +
+        BOTTOM_WINDOW
+    )
+]
+
+
+if len(bottom_candidates) > 0:
+
+    # Select the candidate CLOSEST to the theoretical
+    # bottom arrival.
+    #
+    # This prevents a peak such as 2.80 ms from being
+    # incorrectly labelled as the bottom.
+
+    bottom_peak = (
+        bottom_candidates[
+            np.argmin(
+                np.abs(
+                    time[
+                        bottom_candidates
+                    ]
+                    -
+                    bottom_expected
+                )
+            )
+        ]
+    )
+
+    bottom_detected = True
+
+    bottom_time = (
+        time[bottom_peak]
+    )
+
+else:
+
+    bottom_detected = False
+
+
+# ============================================================
+# 20. ECHO RESULTS
+# ============================================================
+
+print()
+print("=" * 75)
+print("AUTOMATIC ECHO DETECTION")
+print("=" * 75)
+
+
+print(
+    f"Source emission    : "
+    f"{SOURCE_TIME * 1000:.3f} ms"
+)
+
+
+print()
+
+
+print(
+    f"Surface expected   : "
+    f"{surface_expected * 1000:.3f} ms"
+)
+
+
+if surface_detected:
+
+    print(
+        f"Surface detected   : "
+        f"{surface_time * 1000:.3f} ms"
+    )
+
+else:
+
+    print(
+        "Surface reflection NOT detected."
+    )
+
+
+print()
+
+
+print(
+    f"Bottom expected    : "
+    f"{bottom_expected * 1000:.3f} ms"
+)
+
+
+if bottom_detected:
+
+    print(
+        f"Bottom detected    : "
+        f"{bottom_time * 1000:.3f} ms"
+    )
+
+else:
+
+    print(
+        "Bottom reflection NOT detected."
+    )
+
+
+# ============================================================
+# 21. DISTANCE CALCULATION
+# ============================================================
+
+if (
+    surface_detected
+    and
+    bottom_detected
+):
+
+    # --------------------------------------------------------
+    # AIR DISTANCE
+    # --------------------------------------------------------
+
+    air_round_trip_measured = (
+        surface_time -
+        SOURCE_TIME
+    )
+
+
+    calculated_air_distance = (
+        AIR_SPEED *
+        air_round_trip_measured
+        /
+        2.0
+    )
+
+
+    # --------------------------------------------------------
+    # LIQUID ROUND TRIP
+    # --------------------------------------------------------
+
+    measured_liquid_time = (
+        bottom_time -
+        surface_time
+    )
+
+
+    # --------------------------------------------------------
+    # LIQUID DEPTH
+    # --------------------------------------------------------
+
+    calculated_liquid_depth = (
+        LIQUID_SPEED *
+        measured_liquid_time
+        /
+        2.0
+    )
+
+
+    calculated_total = (
+        calculated_air_distance +
+        calculated_liquid_depth
+    )
+
+
+    # --------------------------------------------------------
+    # ERRORS
+    # --------------------------------------------------------
+
+    air_error = abs(
+        calculated_air_distance -
+        AIR_DISTANCE
+    )
+
+
+    liquid_error = abs(
+        calculated_liquid_depth -
+        LIQUID_DEPTH
+    )
+
+
+    print()
+    print("=" * 75)
+    print("FINAL DISTANCE RESULTS")
+    print("=" * 75)
+
+    print()
+
+    print(
+        f"Source emission time   : "
+        f"{SOURCE_TIME * 1000:.4f} ms"
+    )
+
+    print(
+        f"Surface echo time      : "
+        f"{surface_time * 1000:.4f} ms"
+    )
+
+    print(
+        f"Bottom echo time       : "
+        f"{bottom_time * 1000:.4f} ms"
+    )
+
+    print()
+
+    print(
+        f"Measured air round trip: "
+        f"{air_round_trip_measured * 1000:.4f} ms"
+    )
+
+    print(
+        f"Measured liquid round trip: "
+        f"{measured_liquid_time * 1000:.4f} ms"
+    )
+
+    print()
+
+    print(
+        f"Calculated air distance: "
+        f"{calculated_air_distance:.4f} m"
+    )
+
+    print(
+        f"Calculated liquid depth: "
+        f"{calculated_liquid_depth:.4f} m"
+    )
+
+    print(
+        f"Calculated total       : "
+        f"{calculated_total:.4f} m"
+    )
+
+    print()
+
+    print(
+        f"Actual air distance    : "
+        f"{AIR_DISTANCE:.4f} m"
+    )
+
+    print(
+        f"Actual liquid depth    : "
+        f"{LIQUID_DEPTH:.4f} m"
+    )
+
+    print()
+
+    print(
+        f"Air distance error     : "
+        f"{air_error:.4f} m"
+    )
+
+    print(
+        f"Liquid depth error     : "
+        f"{liquid_error:.4f} m"
+    )
+
+else:
+
+    print()
+    print("=" * 75)
+    print("DISTANCE CALCULATION NOT PERFORMED")
+    print("=" * 75)
+
+    print()
+
+    if not surface_detected:
+
+        print(
+            "Reason: surface reflection was not detected."
+        )
+
+    if not bottom_detected:
+
+        print(
+            "Reason: bottom reflection was not detected."
+        )
+
+
+# ============================================================
+# 22. SAVE DATA FOR STAGE 2
+# ============================================================
+
+np.save(
+    "stage1_time.npy",
+    time
+)
+
+np.save(
+    "stage1_pressure.npy",
+    received
+)
+
+np.save(
+    "stage1_envelope.npy",
+    envelope
+)
+
+
+# ============================================================
+# 23. SAVE RESULT VALUES
+# ============================================================
+
+with open(
+    "stage1_results.txt",
+    "w"
+) as f:
+
+    f.write(
+        "STAGE 1 RESULTS\n"
+    )
+
+    f.write(
+        "========================\n"
+    )
+
+    f.write(
+        f"Frequency: {FREQUENCY} Hz\n"
+    )
+
+    f.write(
+        f"Source time: "
+        f"{SOURCE_TIME * 1000:.6f} ms\n"
+    )
+
+    f.write(
+        f"Expected surface: "
+        f"{surface_expected * 1000:.6f} ms\n"
+    )
+
+    f.write(
+        f"Expected bottom: "
+        f"{bottom_expected * 1000:.6f} ms\n"
+    )
+
+    if surface_detected:
+
+        f.write(
+            f"Detected surface: "
+            f"{surface_time * 1000:.6f} ms\n"
+        )
+
+    else:
+
+        f.write(
+            "Detected surface: NOT DETECTED\n"
+        )
+
+    if bottom_detected:
+
+        f.write(
+            f"Detected bottom: "
+            f"{bottom_time * 1000:.6f} ms\n"
+        )
+
+    else:
+
+        f.write(
+            "Detected bottom: NOT DETECTED\n"
+        )
+
+    if (
+        surface_detected
+        and
+        bottom_detected
+    ):
+
+        f.write(
+            f"Calculated air distance: "
+            f"{calculated_air_distance:.6f} m\n"
+        )
+
+        f.write(
+            f"Calculated liquid depth: "
+            f"{calculated_liquid_depth:.6f} m\n"
+        )
+
+
+# ============================================================
+# 24. PLOT
+# ============================================================
+
+plt.figure(
+    figsize=(14, 7)
+)
+
+
+plt.plot(
+    time * 1000,
+    signal,
+    label="Received pressure"
+)
+
+
+plt.plot(
+    time * 1000,
+    envelope,
+    label="Pressure envelope"
+)
+
+
+# Source time
+
+plt.axvline(
+    SOURCE_TIME * 1000,
+    linestyle="--",
+    label="Source"
+)
+
+
+# Expected surface
+
+plt.axvline(
+    surface_expected * 1000,
+    linestyle="--",
+    label="Expected surface"
+)
+
+
+# Expected bottom
+
+plt.axvline(
+    bottom_expected * 1000,
+    linestyle="--",
+    label="Expected bottom"
+)
+
+
+# Detected surface
+
+if surface_detected:
+
+    plt.axvline(
+        surface_time * 1000,
+        linestyle=":",
+        label="Detected surface"
+    )
+
+
+# Detected bottom
+
+if bottom_detected:
+
+    plt.axvline(
+        bottom_time * 1000,
+        linestyle=":",
+        label="Detected bottom"
+    )
+
+
+plt.xlabel(
+    "Time (ms)"
+)
+
+plt.ylabel(
+    "Normalized pressure"
+)
+
+plt.title(
+    "Stage 1 - Reflection + Transmission + Bottom Reflection"
+)
+
+plt.grid(
+    True
+)
+
+plt.legend()
+
+plt.tight_layout()
+
+
+plt.savefig(
+    "stage1_echo_signal.png",
+    dpi=150
+)
+
+
+plt.show()
+
+
+# ============================================================
+# 25. FINISHED
+# ============================================================
+
+print()
+print("=" * 75)
+print("STAGE 1 FINISHED")
+print("=" * 75)
+
+print()
+print("Saved files:")
+print("stage1_time.npy")
+print("stage1_pressure.npy")
+print("stage1_envelope.npy")
+print("stage1_results.txt")
+print("stage1_echo_signal.png")
+
+print("=" * 75)
