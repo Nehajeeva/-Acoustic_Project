@@ -1,0 +1,993 @@
+# ============================================================
+# STAGE 2 - SOUND PROPAGATION ANIMATION
+# Reflection + Transmission + Bottom Reflection
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.patches import Rectangle
+from pathlib import Path
+
+
+# ============================================================
+# 1. PROJECT FOLDER
+# ============================================================
+
+PROJECT_FOLDER = Path(__file__).resolve().parent
+
+print("=" * 75)
+print("STAGE 2 - SOUND PROPAGATION ANIMATION")
+print("=" * 75)
+
+print()
+print("Project folder:")
+print(PROJECT_FOLDER)
+
+
+# ============================================================
+# 2. STAGE 1 VALUES
+# ============================================================
+
+# These are your latest verified Stage 1 results.
+#
+# They are used only if the Stage 1 files are not found.
+
+DEFAULT_AIR_DISTANCE = 0.3039
+DEFAULT_LIQUID_DEPTH = 0.6964
+
+DEFAULT_SOURCE_TIME = 0.3000
+DEFAULT_SURFACE_TIME = 2.0718
+DEFAULT_BOTTOM_TIME = 3.0129
+
+
+# ============================================================
+# 3. TRY TO LOAD STAGE 1 DATA
+# ============================================================
+
+time_file = PROJECT_FOLDER / "stage1_time.npy"
+pressure_file = PROJECT_FOLDER / "stage1_pressure.npy"
+envelope_file = PROJECT_FOLDER / "stage1_envelope.npy"
+
+results_file = PROJECT_FOLDER / "stage1_results.txt"
+
+
+stage1_data_loaded = False
+
+
+if (
+    time_file.exists()
+    and
+    pressure_file.exists()
+    and
+    envelope_file.exists()
+):
+
+    print()
+    print("Stage 1 .npy files found.")
+
+    time = np.load(time_file)
+    pressure = np.load(pressure_file)
+    envelope = np.load(envelope_file)
+
+    time = np.asarray(time).flatten()
+    pressure = np.asarray(pressure).flatten()
+    envelope = np.asarray(envelope).flatten()
+
+    stage1_data_loaded = True
+
+    print("Stage 1 data loaded successfully.")
+
+
+else:
+
+    print()
+    print("Stage 1 .npy files were not found.")
+
+    if results_file.exists():
+
+        print(
+            "stage1_results.txt found."
+        )
+
+        print(
+            "Using Stage 1 result values."
+        )
+
+    else:
+
+        print(
+            "stage1_results.txt was also not found."
+        )
+
+        print(
+            "Using the latest verified Stage 1 values."
+        )
+
+
+# ============================================================
+# 4. PHYSICAL VALUES
+# ============================================================
+
+AIR_SPEED = 343.0
+LIQUID_SPEED = 1480.0
+
+SOURCE_TIME = (
+    DEFAULT_SOURCE_TIME / 1000.0
+)
+
+AIR_DISTANCE = DEFAULT_AIR_DISTANCE
+
+LIQUID_DEPTH = DEFAULT_LIQUID_DEPTH
+
+SURFACE_TIME = (
+    DEFAULT_SURFACE_TIME / 1000.0
+)
+
+BOTTOM_TIME = (
+    DEFAULT_BOTTOM_TIME / 1000.0
+)
+
+TOTAL_DISTANCE = (
+    AIR_DISTANCE +
+    LIQUID_DEPTH
+)
+
+
+# ============================================================
+# 5. IF STAGE 1 DATA EXISTS
+#    USE IT FOR THE WAVEFORM
+# ============================================================
+
+if stage1_data_loaded:
+
+    print()
+    print(
+        "Stage 1 waveform data will be used."
+    )
+
+else:
+
+    # Create a time axis only for animation.
+    #
+    # The actual physical timing is taken from your
+    # verified Stage 1 result.
+
+    time = np.linspace(
+        0,
+        0.0045,
+        5000
+    )
+
+    pressure = np.zeros_like(
+        time
+    )
+
+    envelope = np.zeros_like(
+        time
+    )
+
+
+# ============================================================
+# 6. PRINT VALUES
+# ============================================================
+
+print()
+print("=" * 75)
+print("STAGE 1 VALUES USED FOR ANIMATION")
+print("=" * 75)
+
+print(
+    f"Air distance       : "
+    f"{AIR_DISTANCE:.4f} m"
+)
+
+print(
+    f"Liquid depth       : "
+    f"{LIQUID_DEPTH:.4f} m"
+)
+
+print(
+    f"Total distance     : "
+    f"{TOTAL_DISTANCE:.4f} m"
+)
+
+print()
+
+print(
+    f"Source time        : "
+    f"{SOURCE_TIME * 1000:.4f} ms"
+)
+
+print(
+    f"Surface echo       : "
+    f"{SURFACE_TIME * 1000:.4f} ms"
+)
+
+print(
+    f"Bottom echo        : "
+    f"{BOTTOM_TIME * 1000:.4f} ms"
+)
+
+print("=" * 75)
+
+
+# ============================================================
+# 7. GEOMETRY
+# ============================================================
+
+SOURCE_POSITION = 0.0
+
+SURFACE_POSITION = AIR_DISTANCE
+
+BOTTOM_POSITION = TOTAL_DISTANCE
+
+
+# ============================================================
+# 8. ANIMATION SETTINGS
+# ============================================================
+
+ANIMATION_END = 0.0043
+
+NUMBER_OF_FRAMES = 500
+
+animation_times = np.linspace(
+    0,
+    ANIMATION_END,
+    NUMBER_OF_FRAMES
+)
+
+
+# ============================================================
+# 9. FIGURE
+# ============================================================
+
+fig, ax = plt.subplots(
+    figsize=(15, 7)
+)
+
+
+ax.set_xlim(
+    -0.08,
+    TOTAL_DISTANCE + 0.08
+)
+
+ax.set_ylim(
+    -1.4,
+    1.4
+)
+
+
+ax.set_xlabel(
+    "Distance from source / sensor (m)",
+    fontsize=12
+)
+
+ax.set_ylabel(
+    "Wave amplitude",
+    fontsize=12
+)
+
+
+ax.set_title(
+    "STAGE 2 - Reflection + Transmission + Bottom Reflection",
+    fontsize=15
+)
+
+
+ax.grid(
+    True,
+    alpha=0.3
+)
+
+
+# ============================================================
+# 10. AIR REGION
+# ============================================================
+
+air_region = Rectangle(
+    (
+        0,
+        -1.0
+    ),
+    AIR_DISTANCE,
+    2.0,
+    alpha=0.15
+)
+
+ax.add_patch(
+    air_region
+)
+
+
+# ============================================================
+# 11. LIQUID REGION
+# ============================================================
+
+liquid_region = Rectangle(
+    (
+        AIR_DISTANCE,
+        -1.0
+    ),
+    LIQUID_DEPTH,
+    2.0,
+    alpha=0.20
+)
+
+ax.add_patch(
+    liquid_region
+)
+
+
+# ============================================================
+# 12. INTERFACE
+# ============================================================
+
+surface_line = ax.axvline(
+    SURFACE_POSITION,
+    linestyle="--",
+    linewidth=3
+)
+
+
+# ============================================================
+# 13. BOTTOM
+# ============================================================
+
+bottom_line = ax.axvline(
+    BOTTOM_POSITION,
+    linewidth=5
+)
+
+
+# ============================================================
+# 14. SOURCE + SENSOR
+# ============================================================
+
+source_marker, = ax.plot(
+    [SOURCE_POSITION],
+    [0],
+    marker="o",
+    markersize=14,
+    linestyle="None"
+)
+
+
+# ============================================================
+# 15. LABELS
+# ============================================================
+
+ax.text(
+    SOURCE_POSITION,
+    1.15,
+    "SOURCE + SENSOR",
+    ha="center",
+    fontsize=11,
+    fontweight="bold"
+)
+
+
+ax.text(
+    AIR_DISTANCE / 2,
+    0.95,
+    "AIR",
+    ha="center",
+    fontsize=14,
+    fontweight="bold"
+)
+
+
+ax.text(
+    AIR_DISTANCE + LIQUID_DEPTH / 2,
+    0.95,
+    "LIQUID",
+    ha="center",
+    fontsize=14,
+    fontweight="bold"
+)
+
+
+ax.text(
+    SURFACE_POSITION,
+    -1.15,
+    "AIR-LIQUID\nINTERFACE",
+    ha="center",
+    fontsize=10
+)
+
+
+ax.text(
+    BOTTOM_POSITION,
+    -1.15,
+    "LIQUID\nBOTTOM",
+    ha="center",
+    fontsize=10
+)
+
+
+# ============================================================
+# 16. WAVE OBJECTS
+# ============================================================
+
+incident_wave, = ax.plot(
+    [],
+    [],
+    linewidth=4,
+    label="Incident wave"
+)
+
+
+surface_reflection, = ax.plot(
+    [],
+    [],
+    linewidth=4,
+    label="Surface reflection"
+)
+
+
+transmitted_wave, = ax.plot(
+    [],
+    [],
+    linewidth=4,
+    label="Transmitted wave"
+)
+
+
+bottom_reflection, = ax.plot(
+    [],
+    [],
+    linewidth=4,
+    label="Bottom reflection"
+)
+
+
+return_wave, = ax.plot(
+    [],
+    [],
+    linewidth=4,
+    label="Return to sensor"
+)
+
+
+# ============================================================
+# 17. STATUS TEXT
+# ============================================================
+
+status_text = ax.text(
+    0.02,
+    0.95,
+    "",
+    transform=ax.transAxes,
+    fontsize=12,
+    verticalalignment="top",
+    bbox=dict(
+        boxstyle="round",
+        alpha=0.8
+    )
+)
+
+
+time_text = ax.text(
+    0.98,
+    0.95,
+    "",
+    transform=ax.transAxes,
+    fontsize=12,
+    horizontalalignment="right",
+    verticalalignment="top"
+)
+
+
+# ============================================================
+# 18. WAVE PACKET
+# ============================================================
+
+def wave_packet(
+    x,
+    center,
+    width,
+    amplitude
+):
+
+    return (
+        amplitude
+        *
+        np.exp(
+            -(
+                (x - center)
+                /
+                width
+            ) ** 2
+        )
+    )
+
+
+# ============================================================
+# 19. INITIALIZE
+# ============================================================
+
+def init():
+
+    incident_wave.set_data([], [])
+
+    surface_reflection.set_data([], [])
+
+    transmitted_wave.set_data([], [])
+
+    bottom_reflection.set_data([], [])
+
+    return_wave.set_data([], [])
+
+    status_text.set_text(
+        "Waiting for source..."
+    )
+
+    time_text.set_text(
+        "Time = 0.000 ms"
+    )
+
+    return (
+        incident_wave,
+        surface_reflection,
+        transmitted_wave,
+        bottom_reflection,
+        return_wave,
+        status_text,
+        time_text
+    )
+
+
+# ============================================================
+# 20. UPDATE ANIMATION
+# ============================================================
+
+def update(frame):
+
+    current_time = animation_times[frame]
+
+
+    # Clear waves
+    incident_wave.set_data([], [])
+
+    surface_reflection.set_data([], [])
+
+    transmitted_wave.set_data([], [])
+
+    bottom_reflection.set_data([], [])
+
+    return_wave.set_data([], [])
+
+
+    # ========================================================
+    # PHASE 1
+    # SOURCE
+    # ========================================================
+
+    if current_time < SOURCE_TIME:
+
+        status = (
+            "SOURCE + SENSOR\n"
+            "Waiting to emit acoustic pulse"
+        )
+
+
+    # ========================================================
+    # PHASE 2
+    # SOURCE -> SURFACE
+    # ========================================================
+
+    elif current_time < SURFACE_TIME:
+
+        distance = (
+            AIR_SPEED
+            *
+            (
+                current_time
+                -
+                SOURCE_TIME
+            )
+        )
+
+
+        center = min(
+            distance,
+            AIR_DISTANCE
+        )
+
+
+        x = np.linspace(
+            max(
+                0,
+                center - 0.10
+            ),
+            min(
+                AIR_DISTANCE,
+                center + 0.10
+            ),
+            300
+        )
+
+
+        y = wave_packet(
+            x,
+            center,
+            0.025,
+            0.85
+        )
+
+
+        incident_wave.set_data(
+            x,
+            y
+        )
+
+
+        status = (
+            "INCIDENT WAVE\n"
+            "Sound travels through AIR\n"
+            "towards the liquid surface"
+        )
+
+
+    # ========================================================
+    # PHASE 3
+    # SURFACE REFLECTION + TRANSMISSION
+    # ========================================================
+
+    elif current_time < BOTTOM_TIME:
+
+        # ----------------------------------------------------
+        # Surface reflected wave
+        # ----------------------------------------------------
+
+        reflected_elapsed = (
+            current_time -
+            SURFACE_TIME
+        )
+
+
+        reflected_distance = (
+            AIR_SPEED *
+            reflected_elapsed
+        )
+
+
+        reflected_center = max(
+            0,
+            AIR_DISTANCE -
+            reflected_distance
+        )
+
+
+        xr = np.linspace(
+            max(
+                0,
+                reflected_center - 0.10
+            ),
+            min(
+                AIR_DISTANCE,
+                reflected_center + 0.10
+            ),
+            250
+        )
+
+
+        yr = wave_packet(
+            xr,
+            reflected_center,
+            0.025,
+            -0.55
+        )
+
+
+        surface_reflection.set_data(
+            xr,
+            yr
+        )
+
+
+        # ----------------------------------------------------
+        # Transmitted wave in liquid
+        # ----------------------------------------------------
+
+        liquid_elapsed = (
+            current_time -
+            SURFACE_TIME
+        )
+
+
+        liquid_distance = (
+            LIQUID_SPEED *
+            liquid_elapsed
+        )
+
+
+        liquid_distance = min(
+            liquid_distance,
+            LIQUID_DEPTH
+        )
+
+
+        transmitted_center = (
+            AIR_DISTANCE
+            +
+            liquid_distance
+        )
+
+
+        xt = np.linspace(
+            max(
+                AIR_DISTANCE,
+                transmitted_center - 0.10
+            ),
+            min(
+                BOTTOM_POSITION,
+                transmitted_center + 0.10
+            ),
+            250
+        )
+
+
+        yt = wave_packet(
+            xt,
+            transmitted_center,
+            0.025,
+            0.30
+        )
+
+
+        transmitted_wave.set_data(
+            xt,
+            yt
+        )
+
+
+        status = (
+            "AIR-LIQUID INTERFACE\n"
+            "Part of the wave is REFLECTED\n"
+            "Part is TRANSMITTED into LIQUID"
+        )
+
+
+    # ========================================================
+    # PHASE 4
+    # BOTTOM REFLECTION
+    # ========================================================
+
+    else:
+
+        # Time since bottom reflection
+        elapsed = (
+            current_time -
+            BOTTOM_TIME
+        )
+
+
+        # Time required for reflected wave
+        # to travel from bottom to surface
+        liquid_return_time = (
+            LIQUID_DEPTH /
+            LIQUID_SPEED
+        )
+
+
+        # ----------------------------------------------------
+        # BOTTOM -> SURFACE
+        # ----------------------------------------------------
+
+        if elapsed < liquid_return_time:
+
+            distance_from_bottom = (
+                LIQUID_SPEED *
+                elapsed
+            )
+
+
+            center = max(
+                AIR_DISTANCE,
+                BOTTOM_POSITION -
+                distance_from_bottom
+            )
+
+
+            x = np.linspace(
+                max(
+                    AIR_DISTANCE,
+                    center - 0.10
+                ),
+                min(
+                    BOTTOM_POSITION,
+                    center + 0.10
+                ),
+                300
+            )
+
+
+            y = wave_packet(
+                x,
+                center,
+                0.025,
+                0.25
+            )
+
+
+            bottom_reflection.set_data(
+                x,
+                y
+            )
+
+
+            status = (
+                "BOTTOM REFLECTION\n"
+                "Wave has reached the liquid bottom\n"
+                "and is travelling upward"
+            )
+
+
+        # ----------------------------------------------------
+        # SURFACE -> SENSOR
+        # ----------------------------------------------------
+
+        else:
+
+            air_start_time = (
+                BOTTOM_TIME
+                +
+                liquid_return_time
+            )
+
+
+            air_elapsed = (
+                current_time -
+                air_start_time
+            )
+
+
+            air_distance_back = (
+                AIR_SPEED *
+                air_elapsed
+            )
+
+
+            center = max(
+                0,
+                AIR_DISTANCE -
+                air_distance_back
+            )
+
+
+            x = np.linspace(
+                max(
+                    0,
+                    center - 0.10
+                ),
+                min(
+                    AIR_DISTANCE,
+                    center + 0.10
+                ),
+                300
+            )
+
+
+            y = wave_packet(
+                x,
+                center,
+                0.025,
+                0.20
+            )
+
+
+            return_wave.set_data(
+                x,
+                y
+            )
+
+
+            status = (
+                "RETURN TO SENSOR\n"
+                "Bottom-reflected wave travels back\n"
+                "through the liquid and air"
+            )
+
+
+    # ========================================================
+    # UPDATE TIME
+    # ========================================================
+
+    time_text.set_text(
+        f"Time = "
+        f"{current_time * 1000:.3f} ms"
+    )
+
+
+    status_text.set_text(
+        status
+    )
+
+
+    return (
+        incident_wave,
+        surface_reflection,
+        transmitted_wave,
+        bottom_reflection,
+        return_wave,
+        status_text,
+        time_text
+    )
+
+
+# ============================================================
+# 21. LEGEND
+# ============================================================
+
+ax.legend(
+    loc="lower right"
+)
+
+
+# ============================================================
+# 22. CREATE ANIMATION
+# ============================================================
+
+animation = FuncAnimation(
+    fig,
+    update,
+    frames=NUMBER_OF_FRAMES,
+    init_func=init,
+    interval=30,
+    blit=True,
+    repeat=True
+)
+
+
+# ============================================================
+# 23. SAVE GIF
+# ============================================================
+
+print()
+print("=" * 75)
+print("CREATING ANIMATION")
+print("=" * 75)
+
+print()
+print("Please wait...")
+
+
+try:
+
+    animation.save(
+        str(
+            PROJECT_FOLDER /
+            "stage2_reflection_transmission.gif"
+        ),
+        writer="pillow",
+        fps=30
+    )
+
+    print()
+    print("Animation saved successfully:")
+    print(
+        PROJECT_FOLDER /
+        "stage2_reflection_transmission.gif"
+    )
+
+except Exception as error:
+
+    print()
+    print("GIF saving failed.")
+    print("The live animation will still be shown.")
+    print("Reason:", error)
+
+
+# ============================================================
+# 24. DISPLAY
+# ============================================================
+
+print()
+print("=" * 75)
+print("STARTING LIVE ANIMATION")
+print("=" * 75)
+
+plt.tight_layout()
+
+plt.show()
